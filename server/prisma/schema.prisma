@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Link {
+  id          Int      @id @default(autoincrement())
+  shortCode   String   @unique
+  originalUrl String
+  clicks      Int      @default(0)
+  createdAt   DateTime @default(now())
+  hasIntermediatePage Boolean @default(false)
+  intermediatePageDelay Int @default(0)
+  isActive    Boolean  @default(true)
+  logs        LinkLog[]
+}
+
+model LinkLog {
+  id        Int      @id @default(autoincrement())
+  linkId    Int
+  link      Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  ip        String?
+  userAgent String?
+  referrer  String?
+  country   String?
+  city      String?
+  device    String?
+  browser   String?
+  os        String?
+  createdAt DateTime @default(now())
+}
+
+model SystemLog {
+  id        Int      @id @default(autoincrement())
+  level     String   @default("INFO")
+  message   String
+  context   String?
+  createdAt DateTime @default(now())
+}

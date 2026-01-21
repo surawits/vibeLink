@@ -1,0 +1,27 @@
+# Node
+node_modules/
+dist/
+.npm/
+package-lock.json
+bun.lock
+
+# Angular
+.angular/
+
+# Environment
+.env
+*.local
+
+# Database
+*.db
+*.db-journal
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store

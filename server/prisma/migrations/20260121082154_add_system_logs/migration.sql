@@ -1,0 +1,8 @@
+-- CreateTable
+CREATE TABLE "SystemLog" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "level" TEXT NOT NULL DEFAULT 'INFO',
+    "message" TEXT NOT NULL,
+    "context" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -1,0 +1,12 @@
+{
+  "name": "vibelink-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "bun run run-app.ts",
+    "help": "echo \"\n🚀 vibeLink Help\n\n  bun start                                   - Run full stack (defaults: 3000/4200)\n  SERVER_PORT=3001 bun start                  - Run with custom server port\n  SERVER_PORT=3001 CLIENT_PORT=4300 bun start - Run with custom server and client ports\n\n  Manual Run:\n  1. cd server && bun run dev\n  2. cd client && npm start\n\""
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
