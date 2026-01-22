@@ -51,7 +51,7 @@ export const linkManagement = (app: Elysia) => app
              });
         })
         .post("/", async ({ body, set, session }) => {
-            const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive } = body;
+            const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive, expiresAt, maxClicks } = body;
             const user = await prisma.user.findUnique({ where: { id: session.user.id } });
             
             let shortCode = alias;
@@ -95,7 +95,9 @@ export const linkManagement = (app: Elysia) => app
                     hasIntermediatePage: finalHasIntermediatePage,
                     intermediatePageDelay: finalDelay,
                     isActive: isActive ?? true,
-                    userId: session.user.id
+                    userId: session.user.id,
+                    expiresAt: expiresAt ? new Date(expiresAt) : null,
+                    maxClicks: maxClicks ?? 0
                 }
             });
 
@@ -106,12 +108,14 @@ export const linkManagement = (app: Elysia) => app
                 alias: t.Optional(t.String({ minLength: 1 })),
                 hasIntermediatePage: t.Optional(t.Boolean()),
                 intermediatePageDelay: t.Optional(t.Numeric({ minimum: 0 })),
-                isActive: t.Optional(t.Boolean())
+                isActive: t.Optional(t.Boolean()),
+                expiresAt: t.Optional(t.String()), // Expect ISO string
+                maxClicks: t.Optional(t.Numeric({ minimum: 0 }))
             })
         })
         .put("/:id", async ({ params, body, set, session }) => {
             const { id } = params;
-            const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive } = body;
+            const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive, expiresAt, maxClicks } = body;
 
             try {
                 // Verify ownership or admin
@@ -147,7 +151,9 @@ export const linkManagement = (app: Elysia) => app
                         shortCode: alias, 
                         hasIntermediatePage: finalHasIntermediatePage,
                         intermediatePageDelay: finalDelay,
-                        isActive
+                        isActive,
+                        expiresAt: expiresAt ? new Date(expiresAt) : null,
+                        maxClicks: maxClicks ?? 0
                     }
                 });
                 return updatedLink;
@@ -165,7 +171,9 @@ export const linkManagement = (app: Elysia) => app
                 alias: t.Optional(t.String({ minLength: 1 })),
                 hasIntermediatePage: t.Optional(t.Boolean()),
                 intermediatePageDelay: t.Optional(t.Numeric({ minimum: 0 })),
-                isActive: t.Optional(t.Boolean())
+                isActive: t.Optional(t.Boolean()),
+                expiresAt: t.Optional(t.String()),
+                maxClicks: t.Optional(t.Numeric({ minimum: 0 }))
             })
         })
         .get("/config/delay", async ({ session, set }) => {
@@ -226,6 +234,79 @@ export const linkManagement = (app: Elysia) => app
                 orderBy: { createdAt: "desc" }
             });
             return logs;
+        })
+        .get("/:id/stats/aggregated", async ({ params, set, session }) => {
+            const { id } = params;
+            const linkId = parseInt(id);
+            
+            const link = await prisma.link.findUnique({ where: { id: linkId } });
+            if (!link) {
+                set.status = 404;
+                return { error: "Link not found" };
+            }
+            
+            // Check ownership
+            const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+            if (link.userId !== session.user.id && user?.role !== 'admin') {
+                set.status = 403;
+                return { error: "Forbidden" };
+            }
+
+            // Aggregate data (last 7 days clicks)
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            
+            const clicksOverTime = await prisma.linkLog.groupBy({
+                by: ['createdAt'],
+                where: {
+                    linkId: linkId,
+                    createdAt: { gte: sevenDaysAgo }
+                },
+                _count: { _all: true }
+            });
+            
+            // Note: SQLite group by date is tricky with standard Prisma.
+            // We might need to fetch logs and aggregate in JS for simplicity with SQLite.
+            // For robust prod, we'd use raw query `strftime`.
+            // Let's fetch last 7 days logs and map manually.
+            
+            const logs = await prisma.linkLog.findMany({
+                where: {
+                    linkId: linkId,
+                    createdAt: { gte: sevenDaysAgo }
+                },
+                select: { createdAt: true, device: true }
+            });
+            
+            const clicksByDate: Record<string, number> = {};
+            const deviceStats: Record<string, number> = {};
+            
+            logs.forEach(log => {
+                const date = log.createdAt.toISOString().split('T')[0];
+                clicksByDate[date] = (clicksByDate[date] || 0) + 1;
+                
+                const device = log.device || 'Unknown';
+                deviceStats[device] = (deviceStats[device] || 0) + 1;
+            });
+            
+            // Fill missing dates
+            const chartData = {
+                labels: [] as string[],
+                data: [] as number[]
+            };
+            
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                chartData.labels.push(dateStr);
+                chartData.data.push(clicksByDate[dateStr] || 0);
+            }
+            
+            return {
+                clicksOverTime: chartData,
+                deviceStats
+            };
         })
         .delete("/:id/reset", async ({ params }) => {
             const { id } = params;

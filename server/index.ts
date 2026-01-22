@@ -5,9 +5,67 @@ import { nanoid } from "nanoid";
 import { auth } from "./auth";
 import { userManagement } from "./user-management";
 import { linkManagement } from "./link-management";
+import { LRUCache } from "lru-cache";
+
+// --- Configuration ---
+const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
+const LOG_FLUSH_INTERVAL = 5000; // 5 seconds
+const LOG_BATCH_SIZE = 100;
+
+// --- Caches ---
+// Cache for Link Lookups: shortCode -> Link Object
+const linkCache = new LRUCache<string, any>({
+    max: 1000,
+    ttl: CACHE_TTL,
+});
+
+// --- Analytics Buffer ---
+let logBuffer: any[] = [];
+
+const flushLogs = async () => {
+    if (logBuffer.length === 0) return;
+    
+    const batch = [...logBuffer];
+    logBuffer = []; // Clear buffer immediately
+
+    try {
+        await prisma.linkLog.createMany({
+            data: batch
+        });
+        // Also update click counts? 
+        // Batch updating clicks is harder with standard Prisma createMany.
+        // We can group by linkId and run updateMany or raw query.
+        // For simplicity/safety, we will just insert logs in batch. 
+        // Clicks count on Link table is strictly "approximate" or "eventually consistent" if we do this.
+        // But users want to see clicks.
+        
+        // Let's aggregate clicks from this batch
+        const clickCounts: Record<number, number> = {};
+        for (const log of batch) {
+            clickCounts[log.linkId] = (clickCounts[log.linkId] || 0) + 1;
+        }
+
+        // Perform updates (parallel promises)
+        // This is still heavier than a single query but better than N updates.
+        await Promise.all(Object.entries(clickCounts).map(([linkId, count]) => {
+            return prisma.link.update({
+                where: { id: parseInt(linkId) },
+                data: { clicks: { increment: count } }
+            });
+        }));
+
+    } catch (e) {
+        console.error("Failed to flush analytics logs", e);
+    }
+};
+
+// Start Flush Interval
+setInterval(flushLogs, LOG_FLUSH_INTERVAL);
 
 const logSystem = async (message: string, level = "INFO", context?: string) => {
     console.log(`[${level}] ${message}`);
+    // System logs are critical, maybe not batch them? Or batch separate?
+    // Let's keep system logs direct for now for debugging reliability.
     try {
         await prisma.systemLog.create({
             data: { message, level, context }
@@ -61,6 +119,7 @@ const app = new Elysia()
                 });
                 return { session };
             })
+            // ... (Auth Middleware & User/Link Management)
             .onBeforeHandle(({ session, set, request, path }) => {
                 // Public API routes
                 if (path.startsWith("/api/auth")) return;
@@ -143,29 +202,51 @@ const app = new Elysia()
     )
     .get("/:code", async ({ request, params, set }) => {
         const { code } = params;
-        logSystem(`Incoming redirect request for /${code}`, "DEBUG");
         
-        const link = await prisma.link.findUnique({
-            where: { shortCode: code }
-        });
+        // 1. Check Cache
+        let link = linkCache.get(code);
+
+        // 2. If not in cache, fetch from DB
+        if (!link) {
+            link = await prisma.link.findUnique({
+                where: { shortCode: code }
+            });
+            if (link) {
+                linkCache.set(code, link);
+            }
+        }
 
         if (!link) {
-            logSystem(`Link /${code} not found`, "WARN");
+            // logSystem(`Link /${code} not found`, "WARN"); // High volume noise?
             set.status = 404;
             return new Response(errorPage("Vibe Not Found", "The link you are looking for has faded away."), {
                 headers: { "Content-Type": "text/html" }
             });
         }
 
+        // 3. Validation (Active, ExpiresAt, MaxClicks)
         if (!link.isActive) {
-            logSystem(`Link /${code} is inactive`, "WARN");
-            set.status = 403; // Forbidden
+            set.status = 403;
             return new Response(errorPage("Vibe Check Failed", "This link is currently taking a break."), {
                 headers: { "Content-Type": "text/html" }
             });
         }
 
-        // Capture Analytics
+        if (link.expiresAt && new Date() > new Date(link.expiresAt)) {
+            set.status = 410; // Gone
+            return new Response(errorPage("Vibe Expired", "This link has expired."), {
+                headers: { "Content-Type": "text/html" }
+            });
+        }
+
+        if (link.maxClicks > 0 && link.clicks >= link.maxClicks) {
+             set.status = 410;
+             return new Response(errorPage("Vibe Limit Reached", "This link has reached its maximum visitor limit."), {
+                headers: { "Content-Type": "text/html" }
+            });
+        }
+
+        // 4. Async Analytics (Batched)
         const ip = request.headers.get("x-forwarded-for") || app.server?.requestIP(request)?.address || "unknown";
         const userAgent = request.headers.get("user-agent") || "unknown";
         const referrer = request.headers.get("referer") || "direct";
@@ -188,29 +269,26 @@ const app = new Elysia()
         else if (/safari/i.test(userAgent)) browser = "Safari";
         else if (/edg/i.test(userAgent)) browser = "Edge";
 
-        logSystem(`Redirecting /${code} to ${link.originalUrl}`, "INFO", `IP: ${ip}, Browser: ${browser}`);
+        // Push to buffer
+        logBuffer.push({
+            linkId: link.id,
+            ip,
+            userAgent,
+            referrer,
+            device,
+            os,
+            browser,
+            country: "Unknown", 
+            city: "Unknown",
+            createdAt: new Date()
+        });
 
-        // Async logging
-        prisma.linkLog.create({
-            data: {
-                linkId: link.id,
-                ip,
-                userAgent,
-                referrer,
-                device,
-                os,
-                browser,
-                country: "Unknown", 
-                city: "Unknown"
-            }
-        }).catch(err => logSystem(`Failed to log visit for /${code}`, "ERROR", err.message));
+        // Check buffer size for immediate flush
+        if (logBuffer.length >= LOG_BATCH_SIZE) {
+            flushLogs();
+        }
 
-        // Increment clicks asynchronously
-        prisma.link.update({
-            where: { id: link.id },
-            data: { clicks: { increment: 1 } }
-        }).catch(err => logSystem(`Failed to update clicks for /${code}`, "ERROR", err.message));
-
+        // 5. Redirection
         const delay = link.hasIntermediatePage ? link.intermediatePageDelay : 0;
 
         if (delay > 0) {

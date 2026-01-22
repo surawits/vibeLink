@@ -26,6 +26,8 @@ import { InputGroupModule } from 'primeng/inputgroup';
 import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
 import { MessageModule } from 'primeng/message';
 import * as QRCode from 'qrcode';
+import { CalendarModule } from 'primeng/calendar';
+import { ChartModule } from 'primeng/chart';
 
 @Component({
   selector: 'app-dashboard',
@@ -51,7 +53,9 @@ import * as QRCode from 'qrcode';
     TooltipModule,
     InputGroupModule,
     InputGroupAddonModule,
-    MessageModule
+    MessageModule,
+    CalendarModule,
+    ChartModule
   ],
   providers: [],
   template: `
@@ -235,6 +239,28 @@ import * as QRCode from 'qrcode';
                         </div>
                     }
 
+                    <!-- Row 5: Limits (Expiration) -->
+                    <div class="field grid align-items-start">
+                        <label class="col-12 mb-2 md:col-3 md:mb-0 font-semibold text-right pt-2">Limits</label>
+                        <div class="col-12 md:col-9">
+                             <div class="surface-50 border-1 surface-border border-round p-3 flex flex-column gap-3">
+                                <div class="flex flex-column gap-2">
+                                    <label for="expiresAt" class="text-sm font-semibold">Expiration Date</label>
+                                    <p-calendar id="expiresAt" [(ngModel)]="expirationDate" [showTime]="true" [showIcon]="true" appendTo="body" placeholder="Never"></p-calendar>
+                                </div>
+                                <div class="flex flex-column gap-2">
+                                    <label for="maxClicks" class="text-sm font-semibold">Max Clicks</label>
+                                    <p-inputNumber id="maxClicks" [(ngModel)]="link.maxClicks" [min]="0" showButtons="true" placeholder="0 = Unlimited"
+                                        buttonLayout="horizontal" inputStyleClass="text-center" styleClass="w-full"
+                                        decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" 
+                                        incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus">
+                                    </p-inputNumber>
+                                    <small class="text-500">Set to 0 for unlimited clicks.</small>
+                                </div>
+                             </div>
+                        </div>
+                    </div>
+
                 </div>
 
                 @if (error()) {
@@ -262,6 +288,23 @@ import * as QRCode from 'qrcode';
         </ng-template>
         <ng-template pTemplate="content">
             <div class="p-3">
+                
+                <!-- Charts Section -->
+                <div class="grid mb-4">
+                    <div class="col-12 md:col-8">
+                        <div class="card h-full p-3 surface-card border-round shadow-1">
+                            <span class="block font-bold mb-3">Traffic Trend</span>
+                            <p-chart type="line" [data]="clicksChartData()" [options]="clicksChartOptions()" height="250px"></p-chart>
+                        </div>
+                    </div>
+                    <div class="col-12 md:col-4">
+                        <div class="card h-full p-3 surface-card border-round shadow-1">
+                            <span class="block font-bold mb-3">Devices</span>
+                            <p-chart type="doughnut" [data]="deviceChartData()" [options]="deviceChartOptions()" height="250px"></p-chart>
+                        </div>
+                    </div>
+                </div>
+
                 <p-table [value]="logs()" [rows]="10" [paginator]="true" styleClass="p-datatable-sm p-datatable-striped" [rowHover]="true">
                     <ng-template pTemplate="header">
                         <tr>
@@ -354,6 +397,13 @@ export class DashboardComponent implements OnInit {
   
   qrCodeData = signal<string>('');
   currentQrLink: Link | null = null;
+  expirationDate: Date | undefined = undefined;
+  
+  // Charts
+  clicksChartData = signal<any>(null);
+  clicksChartOptions = signal<any>(null);
+  deviceChartData = signal<any>(null);
+  deviceChartOptions = signal<any>(null);
 
   link: Link = this.createEmptyLink();
   currentStatsLink: Link | null = null;
@@ -362,7 +412,43 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit() {
     console.log('[Dashboard] Initializing component');
+    this.initChartOptions();
     this.loadLinks();
+  }
+  
+  initChartOptions() {
+      const documentStyle = getComputedStyle(document.documentElement);
+      const textColor = documentStyle.getPropertyValue('--text-color');
+      const textColorSecondary = documentStyle.getPropertyValue('--text-color-secondary');
+      const surfaceBorder = documentStyle.getPropertyValue('--surface-border');
+
+      this.clicksChartOptions.set({
+          maintainAspectRatio: false,
+          aspectRatio: 0.6,
+          plugins: {
+              legend: {
+                  labels: { color: textColor }
+              }
+          },
+          scales: {
+              x: {
+                  ticks: { color: textColorSecondary },
+                  grid: { color: surfaceBorder, drawBorder: false }
+              },
+              y: {
+                  ticks: { color: textColorSecondary },
+                  grid: { color: surfaceBorder, drawBorder: false }
+              }
+          }
+      });
+
+      this.deviceChartOptions.set({
+          plugins: {
+              legend: {
+                  labels: { usePointStyle: true, color: textColor }
+              }
+          }
+      });
   }
 
   // ... (previous methods)
@@ -411,7 +497,8 @@ export class DashboardComponent implements OnInit {
           createdAt: '',
           hasIntermediatePage: false,
           intermediatePageDelay: 5,
-          isActive: true
+          isActive: true,
+          maxClicks: 0
       };
   }
 
@@ -447,6 +534,7 @@ export class DashboardComponent implements OnInit {
   openNew() {
       console.log('[Dashboard] Opening dialog for new link');
       this.link = this.createEmptyLink();
+      this.expirationDate = undefined;
       this.submitted = false;
       this.error.set(undefined);
       this.linkDialog = true;
@@ -467,6 +555,7 @@ export class DashboardComponent implements OnInit {
   editLink(link: Link) {
       console.log(`[Dashboard] Editing link ID: ${link.id}`);
       this.link = { ...link };
+      this.expirationDate = link.expiresAt ? new Date(link.expiresAt) : undefined;
       this.error.set(undefined);
       this.linkDialog = true;
       this.isEditMode = true;
@@ -480,9 +569,44 @@ export class DashboardComponent implements OnInit {
   }
 
   loadStats(id: number) {
+      // Load Logs
       this.linkService.getStats(id).subscribe(data => {
-          console.log(`[Dashboard] Loaded ${data.length} logs for link ID: ${id}`);
           this.logs.set(data);
+      });
+      
+      // Load Charts
+      this.linkService.getAggregatedStats(id).subscribe(data => {
+          this.clicksChartData.set({
+              labels: data.clicksOverTime.labels,
+              datasets: [
+                  {
+                      label: 'Clicks (Last 7 Days)',
+                      data: data.clicksOverTime.data,
+                      fill: true,
+                      borderColor: '#3b82f6',
+                      tension: 0.4,
+                      backgroundColor: 'rgba(59, 130, 246, 0.2)'
+                  }
+              ]
+          });
+          
+          const deviceLabels = Object.keys(data.deviceStats);
+          const deviceValues = Object.values(data.deviceStats);
+          
+          this.deviceChartData.set({
+              labels: deviceLabels,
+              datasets: [
+                  {
+                      data: deviceValues,
+                      backgroundColor: [
+                          "#42A5F5", "#66BB6A", "#FFA726", "#26C6DA", "#7E57C2"
+                      ],
+                      hoverBackgroundColor: [
+                          "#64B5F6", "#81C784", "#FFB74D", "#4DD0E1", "#9575CD"
+                      ]
+                  }
+              ]
+          });
       });
   }
 
@@ -564,6 +688,9 @@ export class DashboardComponent implements OnInit {
   saveLink() {
       this.submitted = true;
       this.error.set(undefined);
+      
+      // Update link object with separate Date model
+      this.link.expiresAt = this.expirationDate ? this.expirationDate.toISOString() : null;
 
       if (this.link.originalUrl.trim()) {
           console.log(`[Dashboard] Saving link (EditMode=${this.isEditMode}):`, this.link);

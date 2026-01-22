@@ -19,9 +19,13 @@ model Link {
   hasIntermediatePage Boolean @default(false)
   intermediatePageDelay Int @default(0)
   isActive    Boolean  @default(true)
+  expiresAt   DateTime?
+  maxClicks   Int      @default(0) // 0 means unlimited
   userId      String?
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs        LinkLog[]
+
+  @@index([userId])
 }
 
 model LinkLog {
@@ -37,6 +41,8 @@ model LinkLog {
   browser   String?
   os        String?
   createdAt DateTime @default(now())
+
+  @@index([linkId])
 }
 
 model SystemLog {

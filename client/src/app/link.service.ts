@@ -34,6 +34,8 @@ export interface Link {
   hasIntermediatePage?: boolean;
   intermediatePageDelay?: number;
   isActive?: boolean;
+  expiresAt?: string | null;
+  maxClicks?: number;
 }
 
 @Injectable({
@@ -52,13 +54,23 @@ export class LinkService {
     return this.http.get<SystemLog[]>(`${this.apiUrl}/system-logs`);
   }
 
-  shorten(url: string, alias?: string, hasIntermediatePage: boolean = false, intermediatePageDelay: number = 0, isActive: boolean = true): Observable<Link> {
+  shorten(
+    url: string, 
+    alias?: string, 
+    hasIntermediatePage: boolean = false, 
+    intermediatePageDelay: number = 0, 
+    isActive: boolean = true,
+    expiresAt?: string | null,
+    maxClicks?: number
+  ): Observable<Link> {
     return this.http.post<Link>(`${this.apiUrl}/links`, { 
       url, 
       alias,
       hasIntermediatePage,
       intermediatePageDelay,
-      isActive
+      isActive,
+      expiresAt,
+      maxClicks
     });
   }
 
@@ -68,7 +80,9 @@ export class LinkService {
       alias: link.shortCode,
       hasIntermediatePage: link.hasIntermediatePage,
       intermediatePageDelay: link.intermediatePageDelay,
-      isActive: link.isActive
+      isActive: link.isActive,
+      expiresAt: link.expiresAt,
+      maxClicks: link.maxClicks
     });
   }
 
@@ -86,5 +100,9 @@ export class LinkService {
 
   exportStats(id: number): Observable<Blob> {
     return this.http.get(`${this.apiUrl}/links/${id}/export`, { responseType: 'blob' });
+  }
+
+  getAggregatedStats(id: number): Observable<{ clicksOverTime: { labels: string[], data: number[] }, deviceStats: Record<string, number> }> {
+    return this.http.get<any>(`${this.apiUrl}/links/${id}/stats/aggregated`);
   }
 }
