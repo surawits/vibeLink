@@ -19,6 +19,8 @@ model Link {
   hasIntermediatePage Boolean @default(false)
   intermediatePageDelay Int @default(0)
   isActive    Boolean  @default(true)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs        LinkLog[]
 }
 
@@ -51,10 +53,15 @@ model User {
   email         String    @unique
   emailVerified Boolean
   image         String?
+  role          String    @default("user")
+  passwordChangedAt DateTime?
+  forceChangePassword Boolean @default(false)
+  isActive      Boolean   @default(true)
   createdAt     DateTime
   updatedAt     DateTime
   sessions      Session[]
   accounts      Account[]
+  links         Link[]
 
   @@map("user")
 }
@@ -101,4 +108,9 @@ model Verification {
   updatedAt  DateTime?
 
   @@map("verification")
+}
+
+model SystemConfig {
+  key   String @id
+  value String
 }

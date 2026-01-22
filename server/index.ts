@@ -1,10 +1,10 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "./db";
 import { nanoid } from "nanoid";
 import { auth } from "./auth";
-
-const prisma = new PrismaClient();
+import { userManagement } from "./user-management";
+import { linkManagement } from "./link-management";
 
 const logSystem = async (message: string, level = "INFO", context?: string) => {
     console.log(`[${level}] ${message}`);
@@ -16,6 +16,35 @@ const logSystem = async (message: string, level = "INFO", context?: string) => {
         console.error("Failed to write to SystemLog", e);
     }
 };
+
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+
+// Helper for error pages
+const errorPage = (title: string, message: string) => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f3f4f6; color: #1f2937; }
+        .container { text-align: center; background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); max-width: 90%; width: 400px; }
+        h1 { margin-bottom: 0.5rem; color: #ef4444; }
+        p { color: #6b7280; }
+        .btn { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem; transition: background-color 0.2s; }
+        .btn:hover { background-color: #2563eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>${title}</h1>
+        <p>${message}</p>
+        <a href="/" class="btn">Go Home</a>
+    </div>
+</body>
+</html>
+`;
 
 const app = new Elysia()
     .use(cors({
@@ -36,169 +65,79 @@ const app = new Elysia()
                 // Public API routes
                 if (path.startsWith("/api/auth")) return;
 
+                // Allow change-password for authenticated users even if forced to change
+                if (path === "/api/change-password") return;
+                // Allow checking status (me)
+                if (path === "/api/users/me") return;
+
                 if (!session) {
                     set.status = 401;
                     return { error: "Unauthorized" };
                 }
             })
-            .get("/links", async () => {
-                return await prisma.link.findMany({
-                    orderBy: { createdAt: "desc" }
-                });
-            })
-            .post("/shorten", async ({ body, set }) => {
-                const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive } = body;
-                
-                let shortCode = alias;
-                
-                if (shortCode) {
-                    const existing = await prisma.link.findUnique({
-                        where: { shortCode }
-                    });
-                    if (existing) {
-                        set.status = 400;
-                        return { error: "Alias already taken" };
-                    }
-                } else {
-                    // Generate a random code and ensure it's unique
-                    let isUnique = false;
-                    while (!isUnique) {
-                        shortCode = nanoid(6);
-                        const existing = await prisma.link.findUnique({
-                            where: { shortCode }
-                        });
-                        if (!existing) isUnique = true;
-                    }
+            .use(userManagement)
+            .use(linkManagement)
+            .post("/change-password", async ({ body, session, set, request }) => {
+                if (!session) {
+                    set.status = 401;
+                    return { error: "Unauthorized" };
                 }
 
-                const newLink = await prisma.link.create({
-                    data: {
-                        originalUrl: url,
-                        shortCode: shortCode!,
-                        hasIntermediatePage: hasIntermediatePage ?? false,
-                        intermediatePageDelay: intermediatePageDelay ?? 0,
-                        isActive: isActive ?? true
-                    }
-                });
+                const { currentPassword, newPassword } = body;
+                const userId = session.user.id;
 
-                return newLink;
-            }, {
-                body: t.Object({
-                    url: t.String({ format: 'uri' }),
-                    alias: t.Optional(t.String({ minLength: 1 })),
-                    hasIntermediatePage: t.Optional(t.Boolean()),
-                    intermediatePageDelay: t.Optional(t.Numeric({ minimum: 0 })),
-                    isActive: t.Optional(t.Boolean())
-                })
-            })
-            .put("/links/:id", async ({ params, body, set }) => {
-                const { id } = params;
-                const { url, alias, hasIntermediatePage, intermediatePageDelay, isActive } = body;
+                if (!PASSWORD_REGEX.test(newPassword)) {
+                    set.status = 400;
+                    return { error: "Password must be at least 8 characters and include uppercase, lowercase, number, and special character." };
+                }
+
+                if (currentPassword === newPassword) {
+                    set.status = 400;
+                    return { error: "New password cannot be the same as the current password." };
+                }
 
                 try {
-                    const updatedLink = await prisma.link.update({
-                        where: { id: parseInt(id) },
+                    // Call Better Auth to change password
+                    const { error } = await auth.api.changePassword({
+                        body: {
+                            currentPassword,
+                            newPassword,
+                            revokeOtherSessions: true
+                        },
+                        headers: request.headers 
+                    });
+
+                    if (error) {
+                        set.status = 400;
+                        return { error: error.message || "Failed to change password" };
+                    }
+
+                    // Update local user flags
+                    await prisma.user.update({
+                        where: { id: userId },
                         data: {
-                            originalUrl: url,
-                            shortCode: alias, // Note: Changing alias might fail if not unique, needs error handling
-                            hasIntermediatePage,
-                            intermediatePageDelay,
-                            isActive
+                            passwordChangedAt: new Date(),
+                            forceChangePassword: false
                         }
                     });
-                    return updatedLink;
-                } catch (error: any) {
-                     if (error.code === 'P2002') {
-                        set.status = 400;
-                        return { error: "Alias already taken" };
-                    }
+
+                    return { success: true };
+
+                } catch (e: any) {
+                    console.error("Change password error:", e);
                     set.status = 500;
-                    return { error: "Failed to update link" };
+                    return { error: "Internal server error during password change" };
                 }
             }, {
                 body: t.Object({
-                    url: t.Optional(t.String({ format: 'uri' })),
-                    alias: t.Optional(t.String({ minLength: 1 })),
-                    hasIntermediatePage: t.Optional(t.Boolean()),
-                    intermediatePageDelay: t.Optional(t.Numeric({ minimum: 0 })),
-                    isActive: t.Optional(t.Boolean())
+                    currentPassword: t.String(),
+                    newPassword: t.String()
                 })
-            })
-            .delete("/links/:id", async ({ params }) => {
-                const { id } = params;
-                await prisma.link.delete({
-                    where: { id: parseInt(id) }
-                });
-                return { success: true };
-            })
-            .get("/links/:id/stats", async ({ params }) => {
-                const { id } = params;
-                const logs = await prisma.linkLog.findMany({
-                    where: { linkId: parseInt(id) },
-                    orderBy: { createdAt: "desc" }
-                });
-                return logs;
             })
             .get("/system-logs", async () => {
                 return await prisma.systemLog.findMany({
                     orderBy: { createdAt: "desc" },
                     take: 100 // Last 100 logs
-                });
-            })
-            .delete("/links/:id/reset", async ({ params }) => {
-                const { id } = params;
-                const linkId = parseInt(id);
-                
-                // Transaction to ensure both operations happen or neither
-                await prisma.$transaction([
-                    prisma.linkLog.deleteMany({
-                        where: { linkId }
-                    }),
-                    prisma.link.update({
-                        where: { id: linkId },
-                        data: { clicks: 0 }
-                    })
-                ]);
-                
-                return { success: true };
-            })
-            .get("/links/:id/export", async ({ params, set }) => {
-                const { id } = params;
-                const linkId = parseInt(id);
-                const link = await prisma.link.findUnique({ where: { id: linkId } });
-                
-                if (!link) {
-                    set.status = 404;
-                    return "Link not found";
-                }
-
-                const logs = await prisma.linkLog.findMany({
-                    where: { linkId },
-                    orderBy: { createdAt: "desc" }
-                });
-
-                // Generate CSV
-                const header = "Date,IP,Device,OS,Browser,Referrer,City,Country\n";
-                const rows = logs.map(log => {
-                    const date = log.createdAt.toISOString();
-                    const ip = log.ip || "";
-                    const device = log.device || "";
-                    const os = log.os || "";
-                    const browser = log.browser || "";
-                    // Escape commas in referrer
-                    const referrer = (log.referrer || "").replace(/"/g, '""'); 
-                    const city = log.city || "";
-                    const country = log.country || "";
-                    return `${date},${ip},${device},${os},${browser},"${referrer}",${city},${country}`;
-                }).join("\n");
-
-                const csv = header + rows;
-
-                return new Response(csv, {
-                    headers: {
-                        "Content-Type": "text/csv",
-                        "Content-Disposition": `attachment; filename="vibeLink_stats_${link.shortCode}.csv"`
-                    }
                 });
             })
     )

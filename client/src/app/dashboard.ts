@@ -24,6 +24,8 @@ import { FloatLabelModule } from 'primeng/floatlabel';
 import { TooltipModule } from 'primeng/tooltip';
 import { InputGroupModule } from 'primeng/inputgroup';
 import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
+import { MessageModule } from 'primeng/message';
+import * as QRCode from 'qrcode';
 
 @Component({
   selector: 'app-dashboard',
@@ -48,34 +50,14 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
     FloatLabelModule,
     TooltipModule,
     InputGroupModule,
-    InputGroupAddonModule
+    InputGroupAddonModule,
+    MessageModule
   ],
-  providers: [MessageService, ConfirmationService],
+  providers: [],
   template: `
-    <div class="min-h-screen surface-ground">
-      <p-toast></p-toast>
-      <p-confirmDialog [style]="{width: '450px'}"></p-confirmDialog>
+    <div class="min-h-screen surface-ground p-5 w-full max-w-7xl mx-auto">
       
-      <!-- Colored Top Bar -->
-      <div class="bg-blue-600 h-4rem flex align-items-center px-4 shadow-2 text-white justify-content-between">
-        <div class="flex align-items-center gap-2">
-            <i class="pi pi-bolt text-2xl"></i>
-            <span class="text-xl font-bold">vibeLink</span>
-        </div>
-        <div class="flex align-items-center gap-3">
-             <p-button label="System Logs" icon="pi pi-terminal" [rounded]="true" [text]="true" (onClick)="viewSystemLogs()" styleClass="text-white hover:surface-white hover:text-blue-600 transition-colors"></p-button>
-             <div class="flex flex-column align-items-end">
-                <span class="text-sm font-bold">{{ authService.currentUser()?.name }}</span>
-                <span class="text-xs opacity-70">Admin Console</span>
-             </div>
-             <p-button icon="pi pi-sign-out" [rounded]="true" [text]="true" (onClick)="authService.logout()" pTooltip="Logout" tooltipPosition="bottom" styleClass="text-white hover:surface-white hover:text-blue-600 transition-colors"></p-button>
-        </div>
-      </div>
-
-      <!-- Main Content -->
-      <div class="p-5 w-full max-w-7xl mx-auto">
-        
-        <p-toolbar styleClass="mb-4 gap-2 border-none shadow-1 surface-card border-round-xl px-4 py-3">
+      <p-toolbar styleClass="mb-4 gap-2 border-none shadow-1 surface-card border-round-xl px-4 py-3">
             <ng-template pTemplate="left">
                 <div class="flex flex-column">
                     <h2 class="m-0 text-900 font-semibold">Your Vibes</h2>
@@ -83,7 +65,10 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                 </div>
             </ng-template>
             <ng-template pTemplate="right">
-                <p-button label="New Vibe" icon="pi pi-plus" severity="primary" [raised]="true" (onClick)="openNew()"></p-button>
+                <div class="flex gap-2">
+                    <p-button label="System Logs" icon="pi pi-terminal" severity="secondary" [text]="true" (onClick)="viewSystemLogs()"></p-button>
+                    <p-button label="New Vibe" icon="pi pi-plus" severity="primary" [raised]="true" (onClick)="openNew()"></p-button>
+                </div>
             </ng-template>
         </p-toolbar>
 
@@ -94,7 +79,9 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                 <tr class="bg-gray-50 border-bottom-1 surface-border">
                     <th pSortableColumn="originalUrl" class="font-bold text-900">Original URL <p-sortIcon field="originalUrl"></p-sortIcon></th>
                     <th pSortableColumn="shortCode" class="font-bold text-900">Short Link <p-sortIcon field="shortCode"></p-sortIcon></th>
-                    <th class="font-bold text-900">Redirect</th>
+                    @if (authService.isAdmin()) {
+                        <th class="font-bold text-900">Redirect</th>
+                    }
                     <th pSortableColumn="clicks" class="font-bold text-900">Clicks <p-sortIcon field="clicks"></p-sortIcon></th>
                     <th pSortableColumn="isActive" class="font-bold text-900">Status <p-sortIcon field="isActive"></p-sortIcon></th>
                     <th class="font-bold text-900 text-center">Actions</th>
@@ -110,13 +97,15 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                         {{link.shortCode}}
                     </a>
                     </td>
-                    <td>
-                        @if (link.hasIntermediatePage) {
-                            <p-tag severity="warn" value="Delayed: {{link.intermediatePageDelay}}s" icon="pi pi-clock"></p-tag>
-                        } @else {
-                            <p-tag severity="info" value="Direct" icon="pi pi-arrow-right"></p-tag>
-                        }
-                    </td>
+                    @if (authService.isAdmin()) {
+                        <td>
+                            @if (link.hasIntermediatePage) {
+                                <p-tag severity="warn" value="Delayed: {{link.intermediatePageDelay}}s" icon="pi pi-clock"></p-tag>
+                            } @else {
+                                <p-tag severity="info" value="Direct" icon="pi pi-arrow-right"></p-tag>
+                            }
+                        </td>
+                    }
                     <td>
                         <span class="font-semibold text-700">{{link.clicks}}</span>
                     </td>
@@ -125,6 +114,7 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                     </td>
                     <td class="text-center">
                         <div class="flex gap-2 justify-content-center">
+                            <button pButton pRipple icon="pi pi-qrcode" class="p-button-rounded p-button-text p-button-info" (click)="showQrCode(link)" pTooltip="QR Code"></button>
                             <button pButton pRipple icon="pi pi-chart-bar" class="p-button-rounded p-button-text p-button-secondary" (click)="viewStats(link)" pTooltip="Stats"></button>
                             <button pButton pRipple icon="pi pi-pencil" class="p-button-rounded p-button-text p-button-primary" (click)="editLink(link)" pTooltip="Edit"></button>
                             <button pButton pRipple icon="pi pi-copy" class="p-button-rounded p-button-text p-button-help" (click)="copyToClipboard(link.shortCode)" pTooltip="Copy"></button>
@@ -144,7 +134,6 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                 </tr>
                 </ng-template>
             </p-table>
-        </div>
       </div>
 
       <!-- System Logs Dialog -->
@@ -220,31 +209,39 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
                     </div>
 
                     <!-- Row 4: Redirect Page -->
-                    <div class="field grid align-items-start">
-                        <label class="col-12 mb-2 md:col-3 md:mb-0 font-semibold text-right pt-2">Intermediate Page</label>
-                        <div class="col-12 md:col-9">
-                             <div class="surface-50 border-1 surface-border border-round p-3">
-                                <div class="flex align-items-center gap-2 mb-3">
-                                    <p-checkbox [(ngModel)]="link.hasIntermediatePage" [binary]="true" inputId="intermediate"></p-checkbox>
-                                    <label for="intermediate" class="cursor-pointer select-none">Show countdown page</label>
-                                </div>
-                                
-                                @if (link.hasIntermediatePage) {
-                                    <div class="flex align-items-center gap-3 fadein animation-duration-200">
-                                        <label for="delay" class="text-sm">Wait time:</label>
-                                        <p-inputNumber id="delay" [(ngModel)]="link.intermediatePageDelay" [min]="0" [max]="60" [showButtons]="true" 
-                                            buttonLayout="horizontal" inputStyleClass="w-3rem text-center p-0" styleClass="w-auto"
-                                            decrementButtonClass="p-button-secondary p-button-sm" incrementButtonClass="p-button-secondary p-button-sm" 
-                                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus">
-                                        </p-inputNumber>
-                                        <span class="text-sm">seconds</span>
+                    @if (authService.isAdmin()) {
+                        <div class="field grid align-items-start">
+                            <label class="col-12 mb-2 md:col-3 md:mb-0 font-semibold text-right pt-2">Intermediate Page</label>
+                            <div class="col-12 md:col-9">
+                                <div class="surface-50 border-1 surface-border border-round p-3">
+                                    <div class="flex align-items-center gap-2 mb-3">
+                                        <p-checkbox [(ngModel)]="link.hasIntermediatePage" [binary]="true" inputId="intermediate"></p-checkbox>
+                                        <label for="intermediate" class="cursor-pointer select-none">Show countdown page</label>
                                     </div>
-                                }
-                             </div>
+                                    
+                                    @if (link.hasIntermediatePage) {
+                                        <div class="flex align-items-center gap-3 fadein animation-duration-200">
+                                            <label for="delay" class="text-sm">Wait time:</label>
+                                            <p-inputNumber id="delay" [(ngModel)]="link.intermediatePageDelay" [min]="0" [max]="60" [showButtons]="true" 
+                                                buttonLayout="horizontal" inputStyleClass="w-3rem text-center p-0" styleClass="w-auto"
+                                                decrementButtonClass="p-button-secondary p-button-sm" incrementButtonClass="p-button-secondary p-button-sm" 
+                                                incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus">
+                                            </p-inputNumber>
+                                            <span class="text-sm">seconds</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    }
 
                 </div>
+
+                @if (error()) {
+                    <div class="mt-4">
+                        <p-message severity="error" [text]="error()!" styleClass="w-full"></p-message>
+                    </div>
+                }
             </ng-template>
 
             <ng-template pTemplate="footer">
@@ -306,6 +303,26 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
              </div>
         </ng-template>
       </p-dialog>
+
+      <!-- QR Code Dialog -->
+      <p-dialog [(visible)]="qrDialog" [style]="{width: '400px'}" header="Vibe QR Code" [modal]="true" [draggable]="false" [resizable]="false">
+        <ng-template pTemplate="content">
+            <div class="flex flex-column align-items-center justify-content-center pt-3">
+                @if (qrCodeData()) {
+                    <img [src]="qrCodeData()" alt="QR Code" class="border-1 surface-border border-round" style="width: 250px; height: 250px;">
+                }
+                <div class="mt-3 text-center">
+                    <span class="font-bold text-lg block">{{ currentQrLink?.shortCode }}</span>
+                    <a [href]="getQrUrl()" target="_blank" class="text-sm text-600 no-underline hover:text-primary transition-colors">{{ getQrUrl() }}</a>
+                </div>
+            </div>
+        </ng-template>
+        <ng-template pTemplate="footer">
+            <div class="flex justify-content-center w-full pb-2">
+                <button pButton label="Download PNG" icon="pi pi-download" (click)="downloadQrCode()"></button>
+            </div>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -328,10 +345,15 @@ export class DashboardComponent implements OnInit {
   links = signal<Link[]>([]);
   logs = signal<LinkLog[]>([]);
   sysLogs = signal<SystemLog[]>([]);
+  error = signal<string | undefined>(undefined);
   
   linkDialog: boolean = false;
   statsDialog: boolean = false;
   sysLogDialog: boolean = false;
+  qrDialog: boolean = false;
+  
+  qrCodeData = signal<string>('');
+  currentQrLink: Link | null = null;
 
   link: Link = this.createEmptyLink();
   currentStatsLink: Link | null = null;
@@ -341,6 +363,44 @@ export class DashboardComponent implements OnInit {
   ngOnInit() {
     console.log('[Dashboard] Initializing component');
     this.loadLinks();
+  }
+
+  // ... (previous methods)
+
+  async showQrCode(link: Link) {
+      this.currentQrLink = link;
+      const url = `${this.linkService.baseUrl}/${link.shortCode}`;
+      try {
+          const dataUrl = await QRCode.toDataURL(url, {
+              width: 300,
+              margin: 2,
+              color: {
+                  dark: '#000000',
+                  light: '#ffffff'
+              }
+          });
+          this.qrCodeData.set(dataUrl);
+          this.qrDialog = true;
+      } catch (err) {
+          console.error('[Dashboard] Failed to generate QR code', err);
+          this.messageService.add({severity:'error', summary: 'Error', detail: 'Could not generate QR Code'});
+      }
+  }
+
+  downloadQrCode() {
+      if (!this.qrCodeData() || !this.currentQrLink) return;
+      
+      const link = document.createElement('a');
+      link.href = this.qrCodeData();
+      link.download = `vibe_qr_${this.currentQrLink.shortCode}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  }
+
+  getQrUrl() {
+      if (!this.currentQrLink) return '';
+      return `${this.linkService.baseUrl}/${this.currentQrLink.shortCode}`;
   }
 
   createEmptyLink(): Link {
@@ -388,6 +448,7 @@ export class DashboardComponent implements OnInit {
       console.log('[Dashboard] Opening dialog for new link');
       this.link = this.createEmptyLink();
       this.submitted = false;
+      this.error.set(undefined);
       this.linkDialog = true;
       this.isEditMode = false;
   }
@@ -406,6 +467,7 @@ export class DashboardComponent implements OnInit {
   editLink(link: Link) {
       console.log(`[Dashboard] Editing link ID: ${link.id}`);
       this.link = { ...link };
+      this.error.set(undefined);
       this.linkDialog = true;
       this.isEditMode = true;
   }
@@ -496,10 +558,12 @@ export class DashboardComponent implements OnInit {
   hideDialog() {
       this.linkDialog = false;
       this.submitted = false;
+      this.error.set(undefined);
   }
 
   saveLink() {
       this.submitted = true;
+      this.error.set(undefined);
 
       if (this.link.originalUrl.trim()) {
           console.log(`[Dashboard] Saving link (EditMode=${this.isEditMode}):`, this.link);
@@ -513,7 +577,9 @@ export class DashboardComponent implements OnInit {
                   },
                   error: (err: any) => {
                       console.error(`[Dashboard] Update failed:`, err);
-                      this.messageService.add({severity:'error', summary: 'Error', detail: err.error?.error || 'Update failed'});
+                      const msg = err.error?.error || 'Update failed';
+                      this.error.set(msg);
+                      this.messageService.add({severity:'error', summary: 'Error', detail: msg});
                   }
               });
           } else {
@@ -532,7 +598,9 @@ export class DashboardComponent implements OnInit {
                   },
                   error: (err: any) => {
                       console.error(`[Dashboard] Creation failed:`, err);
-                      this.messageService.add({severity:'error', summary: 'Error', detail: err.error?.error || 'Creation failed'});
+                      const msg = err.error?.error || 'Creation failed';
+                      this.error.set(msg);
+                      this.messageService.add({severity:'error', summary: 'Error', detail: msg});
                   }
               });
           }

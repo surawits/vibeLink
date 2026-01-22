@@ -2,21 +2,37 @@
 
 ## Project Overview
 
-**vibeLink** is a professional-grade, full-stack URL shortener. It features advanced visitor analytics, system observability, and a modern admin interface.
+**vibeLink** is a professional-grade, full-stack URL shortener. It features advanced visitor analytics, system observability, user management, and a modern admin interface.
 
 ### Architecture
-- **Client:** Angular 21 with PrimeNG. Uses Standalone Components, Signals, and a "Registration-style" form layout with a colored top bar.
-- **Server:** Bun runtime with Elysia.js. High-performance API with built-in request logging and analytics.
+- **Client:** Angular 21 with PrimeNG. Uses Standalone Components, Signals, and a "Registration-style" form layout with a colored top bar (Blue-700).
+- **Server:** Bun runtime with Elysia.js. High-performance API with built-in request logging, analytics, and authentication.
 - **Database:** SQLite with Prisma ORM.
 
 ## Key Features
 
-- **Advanced Analytics:** Captures IP, Browser, OS, Device type, and Referrer for every redirect.
-- **System Observability:** Dedicated "System Logs" dashboard in the UI to monitor server activity and debug messages.
-- **Custom Redirection:** Toggle between direct redirects and intermediate "landing" pages with customizable countdown timers.
-- **Link Management:** Full CRUD (Create, Read, Update, Delete) with active/inactive status toggling.
-- **Data Portability:** Export visit logs to CSV and reset statistics as needed.
-- **Auto-Alias:** Built-in 8-character alphanumeric alias generator (~221 trillion combinations).
+### Link Management
+- **Shortening:** Create short links with custom aliases or auto-generated 8-char codes.
+- **QR Codes:** Generate and download QR codes for any link directly from the dashboard.
+- **Advanced Analytics:** Captures IP, Browser, OS, Device type, and Referrer.
+- **Custom Redirection:** 
+    - **Admins:** Can configure intermediate landing pages with custom delays.
+    - **Users:** Enforced 5-second intermediate page delay (configurable by admin).
+- **Data Portability:** Export visit logs to CSV and reset statistics.
+
+### User Management (RBAC)
+- **Role-Based Access:** 
+    - **Admin:** Full access to all links (`/admin/links`), user management (`/users/manage`), and system logs.
+    - **User:** Restricted access. Can only view/manage their own links. Cannot delete account.
+- **User CRUD:** Admins can Create, List, Update, and Delete users.
+- **Password Policy:** 
+    - Enforced complexity (Upper, Lower, Number, Special, Min 8 chars).
+    - Forced password change on first login or after admin reset.
+    - History check (cannot reuse current password).
+- **Password Reset:** Admins can reset user passwords to a default (`InitPass123!`).
+
+### System Observability
+- **System Logs:** Dedicated dashboard to monitor server activity and debug messages.
 
 ## Project Structure
 
@@ -24,12 +40,19 @@
 D:\Work\vibeLink\
 ├── client/                # Angular Frontend
 │   ├── src/
-│   │   ├── app/           # Core logic (app.ts, link.service.ts)
+│   │   ├── app/           # Core logic 
+│   │   │   ├── admin-links.ts      # Admin view for all system links
+│   │   │   ├── user-maintenance.ts # User CRUD component
+│   │   │   ├── dashboard.ts        # Main user dashboard
+│   │   │   ├── link.service.ts     # API Client for links
+│   │   │   └── ...
 │   │   └── environments/  # Dynamic URL configurations
 │   └── angular.json       # Build & budget settings
 └── server/                # Bun + Elysia Backend
-    ├── prisma/            # Schema (Link, LinkLog, SystemLog)
-    ├── index.ts           # API & Logging logic
+    ├── prisma/            # Schema (User, Link, LinkLog, SystemConfig)
+    ├── index.ts           # Server entry point
+    ├── link-management.ts # Link CRUD & Redirect Logic
+    ├── user-management.ts # User CRUD & Auth Logic
     └── package.json       # Dev & build scripts
 ```
 
@@ -44,13 +67,9 @@ bun start
 *   **Server Port:** Default 3000 (Configurable via SERVER_PORT env)
 *   **Client Port:** Default 4200 (Configurable via CLIENT_PORT env)
 
-### Quick Help
-Run the following to see available commands:
-```bash
-npm run help
-# OR
-bun run help
-```
+### Default Credentials
+*   **Email:** `admin@vibelink.local`
+*   **Initial Password:** `AdminPassword123!` (Forces change on first login)
 
 ### Manual Setup (Advanced)
 
@@ -76,15 +95,16 @@ npm start    # Starts Angular dev server
 ## Development Conventions
 
 ### Client (Angular)
-- **UI:** Registration-style grid forms. Side-by-side Label:Input layout.
+- **UI:** Registration-style grid forms (PrimeNG Dialogs). Top Bar: `bg-blue-700` text-white.
 - **State:** Signals for links, logs, and dialog states.
-- **Service:** `LinkService` manages all API calls and exposes `baseUrl` from environment.
-- **Logging:** Extensive `[App]` prefixed console logs for debugging.
+- **Auth:** `AuthService` handles session and role checks (`AdminGuard`, `AuthGuard`).
+- **Error Handling:** Inline `p-message` in dialogs for validation errors, plus global Toasts.
 
 ### Server (Bun/Elysia)
+- **Modularization:** Routes split into `link-management.ts` and `user-management.ts`.
 - **Logging:** Use `logSystem(message, level, context)` for database-backed debugging.
-- **Redirects:** Serves custom HTML error pages for 404/403 scenarios.
-- **Database:** Transactional reset logic for maintaining data integrity between links and logs.
+- **Security:** Strict ownership checks on PUT/DELETE operations.
+- **Database:** Prisma ORM with SQLite. `SystemConfig` table for dynamic settings.
 
 ## Important URLs
 - **Admin UI:** `http://localhost:4200`

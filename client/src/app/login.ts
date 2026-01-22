@@ -104,7 +104,11 @@ export class LoginComponent {
     try {
       const result = await this.authService.login(this.email, this.password);
       if (result) {
-        this.router.navigate(['/']);
+        if (this.authService.mustChangePassword()) {
+            this.router.navigate(['/change-password']);
+        } else {
+            this.router.navigate(['/']);
+        }
       }
     } catch (err: any) {
       console.error('[Login] Error', err);

@@ -53,7 +53,7 @@ export class LinkService {
   }
 
   shorten(url: string, alias?: string, hasIntermediatePage: boolean = false, intermediatePageDelay: number = 0, isActive: boolean = true): Observable<Link> {
-    return this.http.post<Link>(`${this.apiUrl}/shorten`, { 
+    return this.http.post<Link>(`${this.apiUrl}/links`, { 
       url, 
       alias,
       hasIntermediatePage,
