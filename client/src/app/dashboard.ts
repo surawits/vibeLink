@@ -26,7 +26,6 @@ import { InputGroupModule } from 'primeng/inputgroup';
 import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
 import { MessageModule } from 'primeng/message';
 import * as QRCode from 'qrcode';
-import { CalendarModule } from 'primeng/calendar';
 import { ChartModule } from 'primeng/chart';
 
 @Component({
@@ -54,7 +53,6 @@ import { ChartModule } from 'primeng/chart';
     InputGroupModule,
     InputGroupAddonModule,
     MessageModule,
-    CalendarModule,
     ChartModule
   ],
   providers: [],
@@ -246,7 +244,7 @@ import { ChartModule } from 'primeng/chart';
                              <div class="surface-50 border-1 surface-border border-round p-3 flex flex-column gap-3">
                                 <div class="flex flex-column gap-2">
                                     <label for="expiresAt" class="text-sm font-semibold">Expiration Date</label>
-                                    <p-calendar id="expiresAt" [(ngModel)]="expirationDate" [showTime]="true" [showIcon]="true" appendTo="body" placeholder="Never"></p-calendar>
+                                    <input pInputText type="datetime-local" id="expiresAt" [(ngModel)]="expirationDateString" class="w-full" />
                                 </div>
                                 <div class="flex flex-column gap-2">
                                     <label for="maxClicks" class="text-sm font-semibold">Max Clicks</label>
@@ -397,7 +395,7 @@ export class DashboardComponent implements OnInit {
   
   qrCodeData = signal<string>('');
   currentQrLink: Link | null = null;
-  expirationDate: Date | undefined = undefined;
+  expirationDateString: string | undefined = undefined;
   
   // Charts
   clicksChartData = signal<any>(null);
@@ -534,7 +532,7 @@ export class DashboardComponent implements OnInit {
   openNew() {
       console.log('[Dashboard] Opening dialog for new link');
       this.link = this.createEmptyLink();
-      this.expirationDate = undefined;
+      this.expirationDateString = undefined;
       this.submitted = false;
       this.error.set(undefined);
       this.linkDialog = true;
@@ -555,7 +553,8 @@ export class DashboardComponent implements OnInit {
   editLink(link: Link) {
       console.log(`[Dashboard] Editing link ID: ${link.id}`);
       this.link = { ...link };
-      this.expirationDate = link.expiresAt ? new Date(link.expiresAt) : undefined;
+      // Format to datetime-local string: YYYY-MM-DDTHH:mm
+      this.expirationDateString = link.expiresAt ? new Date(link.expiresAt).toISOString().slice(0, 16) : undefined;
       this.error.set(undefined);
       this.linkDialog = true;
       this.isEditMode = true;
@@ -690,7 +689,7 @@ export class DashboardComponent implements OnInit {
       this.error.set(undefined);
       
       // Update link object with separate Date model
-      this.link.expiresAt = this.expirationDate ? this.expirationDate.toISOString() : null;
+      this.link.expiresAt = this.expirationDateString ? new Date(this.expirationDateString).toISOString() : null;
 
       if (this.link.originalUrl.trim()) {
           console.log(`[Dashboard] Saving link (EditMode=${this.isEditMode}):`, this.link);
